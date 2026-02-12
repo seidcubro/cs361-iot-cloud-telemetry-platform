@@ -7,6 +7,11 @@ services:
       - DATA_PATH=/data/latest.json
     volumes:
       - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health').read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   api:
     build: ./services/api
@@ -16,4 +21,11 @@ services:
       - DATA_PATH=/data/latest.json
     volumes:
       - ./data:/data
-
+    depends_on:
+      ingestion:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health').read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5

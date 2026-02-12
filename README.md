@@ -1,129 +1,123 @@
-# Cloud-Based IoT Environmental Telemetry Platform
+# Cloud-Based IoT Environmental Telemetry Platform (CS361)
 
-## Overview
-This project implements a **cloud-native IoT Environmental Telemetry Platform** that ingests temperature and humidity data from ESP32-based devices, processes the data using asynchronous microservices, and exposes the data through secure REST APIs. The system is deployed on AWS using containerized services, Kubernetes orchestration, Infrastructure as Code, and automated CI/CD pipelines.
+Repo: `cs361-iot-cloud-telemetry-platform`  
+Team: Seid Cubro (Project Lead — Cloud/Infra/Security) + Charles Shoppel (App/DevOps)  
+Last updated: 2026-02-12
 
-The project follows a milestone-driven lifecycle aligned with industry-standard cloud engineering practices, including architecture design, design reviews, observability, security, load testing, and operational readiness.
+## 0. What this is
+A cloud-native IoT telemetry platform that ingests temperature/humidity readings (ESP32 + DHT22), buffers ingestion asynchronously, persists to DynamoDB, and exposes read APIs.
 
----
+**Target AWS data flow (final architecture):**
 
-## Architecture Summary
-High-level data flow:
-ESP32 → API Gateway → Ingestion Service (EKS) → SQS → Worker Service (EKS)
-→ DynamoDB → API Service (EKS) → Clients
+`ESP32 → API Gateway → Ingestion (EKS) → SQS → Worker (EKS) → DynamoDB → API (EKS) → Clients`
 
-Key architectural characteristics:
-- Cloud-native microservice design
-- Asynchronous ingestion using Amazon SQS
-- Kubernetes-based deployment with autoscaling
-- Centralized logging, metrics, and alerting
-- Security-first design with least-privilege access
+This architecture and the design decisions are documented in:
+- `project-proposal/CS 361 Project Proposal.pdf`
+- `project-architecture/CS 361 Project Architecture Package.pdf`
+- `project-team-roles/CS 361 Project Team Roles.pdf`
 
-Detailed architecture diagrams and design decisions are documented in `/docs`.
+## 1. Repo map
+| Path | Purpose |
+|---|---|
+| `services/` | Microservices (containerized) |
+| `docker-compose.yml` | Local prototype orchestration (Milestone M4) |
+| `k8s/` | Kubernetes manifests (Milestone M6) |
+| `kind-config.yaml` | Local kind cluster config (Windows) |
+| `metrics-server-patch.json` | Patch used to fix metrics-server args for HPA |
+| `docs/` | Evidence + milestone documentation (screenshots, PDFs, run notes) |
+| `data/latest.json` | **Prototype-only** storage used for M4/M6 local demos (replaced by DynamoDB in M7+) |
+| `telemetry.json` | Sample telemetry payload used for testing |
 
----
+## 2. Current milestone status
+- **M4 (PDR):** Local prototype via Docker Compose (ingest + latest read) + evidence in `docs/pdr-evidence/`
+- **M5 (CDR):** CDR/traceability/security/observability baseline artifacts in `project-cdr/` (if present)
+- **M6:** kind deployment + Services + Ingress + HPA + metrics proof in `docs/k8s-deployment-evidence/`
+- **M7 (next):** Replace prototype storage with **SQS + Worker + DynamoDB**, add ingestion view endpoint, and use either a publisher script or the physical ESP32 device.
 
-## Core Features
-- IoT telemetry ingestion via HTTPS REST API
-- Asynchronous processing and buffering
-- Scalable, serverless data storage using DynamoDB
-- Secure API access with authentication
-- Centralized observability (logs, metrics, alarms)
-- Kubernetes autoscaling and fault tolerance
-- CI/CD automation from commit to deployment
+## 3. Local quickstart (Docker Compose)
+**Requirements**
+- Docker Desktop
+- PowerShell
+- Ports available: `8081` (ingestion), `8082` (api)
 
----
+Run:
+```powershell
+docker compose up --build
+```
 
-## Technology Stack
+Health checks:
+```powershell
+curl.exe -i http://localhost:8081/health
+curl.exe -i http://localhost:8082/health
+```
 
-### Cloud & Infrastructure
-- **Cloud Provider:** AWS
-- **Container Orchestration:** Amazon EKS (Kubernetes)
-- **API Gateway:** Amazon API Gateway (HTTP API)
-- **Queue:** Amazon SQS
-- **Database:** Amazon DynamoDB
-- **Secrets Management:** AWS Secrets Manager
-- **Observability:** Amazon CloudWatch
-- **IAM:** Least-privilege role-based access
+POST telemetry:
+```powershell
+curl.exe -i -X POST "http://localhost:8081/v1/telemetry" `
+  -H "Content-Type: application/json" `
+  --data-binary "@telemetry.json"
+```
 
-### DevOps & Tooling
-- Docker
-- Kubernetes (HPA enabled)
-- Terraform (Infrastructure as Code)
-- GitHub Actions (CI/CD)
-- curl / Postman for API testing
+GET latest:
+```powershell
+curl.exe -i "http://localhost:8082/v1/devices/esp32-001/telemetry/latest"
+```
 
-### IoT
-- ESP32 microcontroller
-- DHT temperature/humidity sensor
-- HTTPS-based telemetry publishing
+> Note: PowerShell aliases `curl` to `Invoke-WebRequest`. Use `curl.exe` to avoid quoting/behavior differences.
 
+## 4. Kubernetes quickstart (kind)
+This repo supports M6 evidence using a local Kubernetes cluster.
 
----
+Create cluster:
+```powershell
+kind create cluster --name cs361 --config .\kind-config.yaml
+```
 
-## API Endpoints
+Install ingress + metrics-server as needed (see docs):
+- `docs/kubernetes.md`
+- `docs/troubleshooting.md`
 
-### Telemetry Ingestion
-**POST** `/v1/telemetry`  
-Ingest telemetry data from ESP32 devices.
+Build and load images:
+```powershell
+docker build -t cs361-ingestion:local services\ingestion
+docker build -t cs361-api:local services\api
 
-### Data Retrieval
-**GET** `/v1/devices/{deviceId}/telemetry/latest`  
-**GET** `/v1/devices/{deviceId}/telemetry?start=...&end=...`
+kind load docker-image cs361-ingestion:local --name cs361
+kind load docker-image cs361-api:local --name cs361
+```
 
-### Health
-**GET** `/health`  
-Service health and readiness check.
+Apply manifests:
+```powershell
+kubectl apply -f .\k8s
+kubectl get pods
+kubectl get svc
+kubectl get ingress
+kubectl get hpa
+kubectl top nodes
+```
 
----
+## 5. Documentation index
+Start here: **`docs/README.md`**.
 
-## Security Model
-- Device authentication using API keys or JWT (configurable)
-- Secrets stored in AWS Secrets Manager
-- IAM roles with least-privilege permissions
-- Private access to DynamoDB from Kubernetes workloads
+## 6. Evidence / grading artifacts
+- M4 evidence: `docs/pdr-evidence/`
+- M6 evidence: `docs/k8s-deployment-evidence/`
 
----
+## 7. Coding + documentation standards
+This repo follows:
+- Docstrings + comments for non-obvious logic
+- Clear configuration via environment variables
+- Minimal dependencies
+- "Terminal-only" workflow: all editing and operations are reproducible via PowerShell commands
 
-## Observability & Reliability
-- Centralized logging via CloudWatch Logs
-- Metrics for request rate, error rate, latency, and queue depth
-- CloudWatch Alarms for failure detection
-- Horizontal Pod Autoscaling (HPA) for Kubernetes services
-- Failure scenarios tested using queue backlog and service interruption
+See:
+- `CONTRIBUTING.md`
+- `docs/coding-standards.md`
+- `docs/api/openapi.yaml`
 
----
+## 8. Security note
+Do **not** commit AWS credentials or secrets. Local-only secrets should be stored using:
+- `.env` (gitignored) for local runs, or
+- Kubernetes Secrets for local clusters
 
-## CI/CD
-- Automated build and test on pull requests
-- Container image build and deployment pipeline
-- Versioned deployments with rollback support
-- Separate staging and production environments (where applicable)
-
----
-
-## Project Milestones
-This repository supports a milestone-driven academic project lifecycle:
-- Project proposal and backlog definition
-- Architecture design and review
-- Kubernetes deployment and autoscaling
-- Asynchronous processing integration
-- Load testing, tuning, and cost controls
-- Final demo and reporting
-
----
-
-## Team
-- **Seid Cubro**
-- **Charles Shoppel**
-
----
-
-## Status
-This project is under active development as part of a cloud practicum course.  
-Features and infrastructure evolve incrementally according to milestone requirements.
-
----
-
-## License
-Academic project – for educational use only.
+See: `SECURITY.md` and `docs/aws-console-setup.md`.

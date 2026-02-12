@@ -1,0 +1,90 @@
+openapi: 3.0.3
+info:
+  title: Cloud-Based IoT Environmental Telemetry Platform
+  version: "1.0.0"
+  description: >
+    REST APIs for ingesting and reading temperature/humidity telemetry. The target
+    architecture buffers ingestion asynchronously (SQS) and persists to DynamoDB.
+servers:
+  - url: http://localhost:8081
+    description: Local ingestion service (prototype)
+  - url: http://localhost:8082
+    description: Local API service (prototype)
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  service: { type: string }
+
+  /v1/telemetry:
+    post:
+      summary: Ingest telemetry (async accept)
+      description: >
+        Accepts telemetry payloads. In M4/M6 prototype, writes to local JSON.
+        In M7+, publishes to SQS and returns 202 immediately.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Telemetry"
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+        "400":
+          description: Validation error
+
+  /v1/devices/{device_id}/telemetry/latest:
+    get:
+      summary: Get latest telemetry for a device
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Latest record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Telemetry"
+        "404":
+          description: Device not found
+
+components:
+  schemas:
+    Telemetry:
+      type: object
+      required: [device_id, timestamp, temperature_c, humidity_pct]
+      properties:
+        device_id:
+          type: string
+          example: esp32-001
+        timestamp:
+          type: string
+          description: ISO-8601 timestamp (UTC recommended)
+          example: "2026-03-02T18:00:00Z"
+        temperature_c:
+          type: number
+          format: float
+          example: 22.4
+        humidity_pct:
+          type: number
+          format: float
+          example: 41.2
