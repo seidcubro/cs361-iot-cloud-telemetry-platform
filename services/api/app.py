@@ -1,80 +1,53 @@
-"""cs361.services.api
-
-API Service (prototype)
-
-Responsibilities (by milestone):
-- M4/M6: Read latest telemetry from a local JSON file shared via a volume.
-- M7+: Read telemetry from DynamoDB (time-series per device) as defined in the
-  Architecture Package (Partition key=device_id, Sort key=timestamp ISO-8601).
-
-This service intentionally stays small and focused: it exposes REST endpoints for
-clients and keeps persistence details behind a simple read function.
-
-Environment variables:
-- DATA_PATH: Path to prototype JSON storage (default: /data/latest.json)
-
-Endpoints:
-- GET /health
-- GET /v1/devices/<device_id>/telemetry/latest
-"""
-
-from __future__ import annotations
-
-import json
-import os
-from typing import Any, Dict
-
+﻿import os
+import boto3
 from flask import Flask, jsonify
+from boto3.dynamodb.conditions import Key
 
 app = Flask(__name__)
 
-DATA_PATH = os.environ.get("DATA_PATH", "/data/latest.json")
+def env(name: str) -> str:
+    v = os.getenv(name)
+    if not v:
+        raise RuntimeError(f"Missing required env var: {name}")
+    return v
 
+AWS_REGION = env("AWS_REGION")
+DDB_TABLE = env("DDB_TABLE")
+SQS_QUEUE_URL = env("SQS_QUEUE_URL")
 
-def load_data() -> Dict[str, Any]:
-    """Load prototype telemetry data from DATA_PATH.
+ddb = boto3.resource("dynamodb", region_name=AWS_REGION)
+table = ddb.Table(DDB_TABLE)
 
-    The prototype schema is a dict keyed by device_id:
-    {
-      "esp32-001": { "device_id": "...", "timestamp": "...", "temperature_c": 22.1, "humidity_pct": 41.2 },
-      ...
-    }
-
-    Returns:
-        dict: Parsed JSON content or an empty dict if the file does not exist or is invalid.
-    """
-    if not os.path.exists(DATA_PATH):
-        return {}
-
-    try:
-        with open(DATA_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        # Treat read/parse failures as "no data" for the prototype.
-        return {}
-
+sqs = boto3.client("sqs", region_name=AWS_REGION)
 
 @app.get("/health")
 def health():
-    """Health endpoint used for readiness/liveness checks."""
-    return jsonify(status="ok", service="api"), 200
-
+    return jsonify({"status": "ok"}), 200
 
 @app.get("/v1/devices/<device_id>/telemetry/latest")
 def latest(device_id: str):
-    """Return the latest telemetry record for the given device_id.
+    resp = table.query(
+        KeyConditionExpression=Key("device_id").eq(device_id),
+        ScanIndexForward=False,
+        Limit=1
+    )
+    items = resp.get("Items", [])
+    if not items:
+        return jsonify({"error": "No telemetry found"}), 404
+    return jsonify(items[0]), 200
 
-    In the prototype implementation, this reads from a shared JSON file.
-    In M7+, this will be replaced with a DynamoDB query:
-    Query(device_id, ScanIndexForward=False, Limit=1)
+# M7 ingestion view: show queue backlog
+@app.get("/v1/ingestion/queue")
+def queue_view():
+    attrs = sqs.get_queue_attributes(
+        QueueUrl=SQS_QUEUE_URL,
+        AttributeNames=["ApproximateNumberOfMessagesVisible", "ApproximateNumberOfMessagesNotVisible"]
+    )["Attributes"]
 
-    Args:
-        device_id: Device identifier (e.g., esp32-001)
+    return jsonify({
+        "queue_depth_visible": int(attrs.get("ApproximateNumberOfMessagesVisible", "0")),
+        "queue_inflight_not_visible": int(attrs.get("ApproximateNumberOfMessagesNotVisible", "0"))
+    }), 200
 
-    Returns:
-        200 + JSON record if found, else 404.
-    """
-    data = load_data()
-    if device_id not in data:
-        return jsonify(error="Device not found"), 404
-    return jsonify(data[device_id]), 200
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8082)

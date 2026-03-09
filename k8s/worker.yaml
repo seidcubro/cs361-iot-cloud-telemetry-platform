@@ -1,22 +1,20 @@
 ﻿apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: api
+  name: worker
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: api
+      app: worker
   template:
     metadata:
       labels:
-        app: api
+        app: worker
     spec:
       containers:
-        - name: api
-          image: cs361-api:local
-          ports:
-            - containerPort: 8082
+        - name: worker
+          image: cs361-worker:20260219160209
           env:
             - name: AWS_REGION
               value: "us-east-1"
@@ -34,14 +32,5 @@ spec:
                 secretKeyRef:
                   name: aws-creds
                   key: AWS_SECRET_ACCESS_KEY
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: api-svc
-spec:
-  selector:
-    app: api
-  ports:
-    - port: 8082
-      targetPort: 8082
+
+

@@ -2,8 +2,6 @@
 kind: Deployment
 metadata:
   name: ingestion
-  labels:
-    app: ingestion
 spec:
   replicas: 1
   selector:
@@ -17,9 +15,23 @@ spec:
       containers:
         - name: ingestion
           image: cs361-ingestion:local
-          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8081
+          env:
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: SQS_QUEUE_URL
+              value: "https://sqs.us-east-1.amazonaws.com/094728020196/cs361-telemetry-queue"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws-creds
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws-creds
+                  key: AWS_SECRET_ACCESS_KEY
 ---
 apiVersion: v1
 kind: Service
@@ -29,6 +41,5 @@ spec:
   selector:
     app: ingestion
   ports:
-    - name: http
-      port: 8081
+    - port: 8081
       targetPort: 8081
