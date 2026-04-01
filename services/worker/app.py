@@ -2,7 +2,6 @@
 import json
 import time
 import traceback
-from datetime import datetime, timezone
 from decimal import Decimal
 
 import boto3
@@ -28,22 +27,24 @@ def safe_json(body: str):
         return None
 
 def to_decimal(x):
-    # DynamoDB via boto3 requires Decimal for all numeric types
     return Decimal(str(x))
 
 def normalize(payload: dict) -> dict:
-    for k in ["device_id", "temperature_c", "humidity_pct"]:
+    for k in ["house_id", "device_id", "temperature_f", "humidity_pct"]:
         if k not in payload:
             raise ValueError(f"Missing field: {k}")
 
     ts = payload.get("timestamp")
-    if not ts:
-        ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    if ts is None or ts == "":
+        ts = int(time.time())
+
+    ts = int(ts)
 
     return {
+        "house_id": str(payload["house_id"]),
         "device_id": str(payload["device_id"]),
-        "timestamp": str(ts),
-        "temperature_c": to_decimal(payload["temperature_c"]),
+        "timestamp": ts,
+        "temperature_f": to_decimal(payload["temperature_f"]),
         "humidity_pct": to_decimal(payload["humidity_pct"]),
     }
 

@@ -1,6 +1,6 @@
 ﻿import os
 import json
-from datetime import datetime, timezone
+import time
 
 import boto3
 from flask import Flask, request, jsonify
@@ -26,12 +26,17 @@ def health():
 def ingest():
     data = request.get_json(force=True)
 
-    for k in ["device_id", "temperature_c", "humidity_pct"]:
+    for k in ["house_id", "device_id", "temperature_f", "humidity_pct"]:
         if k not in data:
             return jsonify({"error": f"Missing field: {k}"}), 400
 
     if not data.get("timestamp"):
-        data["timestamp"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        data["timestamp"] = int(time.time())
+
+    try:
+        data["timestamp"] = int(data["timestamp"])
+    except (TypeError, ValueError):
+        return jsonify({"error": "timestamp must be unix seconds as an integer"}), 400
 
     sqs.send_message(
         QueueUrl=SQS_QUEUE_URL,
