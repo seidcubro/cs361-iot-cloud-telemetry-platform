@@ -1,19 +1,88 @@
 openapi: 3.0.3
 info:
   title: Cloud-Based IoT Environmental Telemetry Platform
-  version: "1.0.0"
+  version: "2.0.0"
   description: >
-    REST APIs for ingesting and reading temperature/humidity telemetry. The target
-    architecture buffers ingestion asynchronously (SQS) and persists to DynamoDB.
+    REST APIs for an AWS-backed IoT telemetry platform. Telemetry is accepted by
+    the ingestion service, queued in Amazon SQS, processed by a worker, stored in
+    DynamoDB, and later retrieved by the API service for UI consumption.
 servers:
   - url: http://localhost:8081
-    description: Local ingestion service (prototype)
+    description: Ingestion service (local or port-forwarded)
   - url: http://localhost:8082
-    description: Local API service (prototype)
+    description: API service (local or port-forwarded)
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+  schemas:
+    TelemetryIngestRequest:
+      type: object
+      required: [house_id, device_id, temperature_f, humidity_pct]
+      properties:
+        house_id:
+          type: string
+          example: house-1
+        device_id:
+          type: string
+          example: garage
+        temperature_f:
+          type: number
+          format: float
+          example: 72.5
+        humidity_pct:
+          type: number
+          format: float
+          example: 40.1
+        timestamp:
+          type: integer
+          description: Unix epoch seconds. Optional on ingest; server fills it in if omitted.
+          example: 1741800000
+    TelemetryRecord:
+      type: object
+      properties:
+        house_id:
+          type: string
+          example: house-1
+        device_id:
+          type: string
+          example: garage
+        temperature_f:
+          type: number
+          format: float
+          example: 72.5
+        humidity_pct:
+          type: number
+          format: float
+          example: 40.1
+        timestamp:
+          type: number
+          example: 1741800000
+    AlertRecord:
+      type: object
+      properties:
+        device_id:
+          type: string
+          example: garage
+        house_id:
+          type: string
+          example: house-1
+        timestamp:
+          type: number
+          example: 1741800000
+        type:
+          type: string
+          enum: [HIGH_TEMP, HIGH_HUMIDITY]
+        value:
+          type: number
+          example: 95
 paths:
   /health:
     get:
       summary: Health check
+      description: Simple liveness check used by the service and deployment workflow.
       responses:
         "200":
           description: OK
@@ -22,69 +91,80 @@ paths:
               schema:
                 type: object
                 properties:
-                  status: { type: string }
-                  service: { type: string }
-
+                  status:
+                    type: string
+                    example: ok
   /v1/telemetry:
     post:
-      summary: Ingest telemetry (async accept)
+      summary: Accept a telemetry reading
       description: >
-        Accepts telemetry payloads. In M4/M6 prototype, writes to local JSON.
-        In M7+, publishes to SQS and returns 202 immediately.
+        Validates the payload, requires an API key, and asynchronously enqueues the
+        telemetry record to SQS.
+      security:
+        - ApiKeyAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/Telemetry"
+              $ref: "#/components/schemas/TelemetryIngestRequest"
       responses:
         "202":
-          description: Accepted
+          description: Accepted for asynchronous processing
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  message: { type: string }
+                  message:
+                    type: string
+                    example: Accepted
         "400":
           description: Validation error
-
-  /v1/devices/{device_id}/telemetry/latest:
+        "401":
+          description: Missing or invalid API key
+        "500":
+          description: Queueing failure
+  /v1/telemetry/latest:
     get:
-      summary: Get latest telemetry for a device
+      summary: Get the latest telemetry record for a device
       parameters:
         - name: device_id
-          in: path
+          in: query
           required: true
-          schema: { type: string }
+          schema:
+            type: string
       responses:
         "200":
-          description: Latest record
+          description: Latest telemetry record, returned as a single-item array in the current implementation
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Telemetry"
-        "404":
-          description: Device not found
-
-components:
-  schemas:
-    Telemetry:
-      type: object
-      required: [device_id, timestamp, temperature_c, humidity_pct]
-      properties:
-        device_id:
-          type: string
-          example: esp32-001
-        timestamp:
-          type: string
-          description: ISO-8601 timestamp (UTC recommended)
-          example: "2026-03-02T18:00:00Z"
-        temperature_c:
-          type: number
-          format: float
-          example: 22.4
-        humidity_pct:
-          type: number
-          format: float
-          example: 41.2
+                type: array
+                items:
+                  $ref: "#/components/schemas/TelemetryRecord"
+        "400":
+          description: Missing device_id query parameter
+  /v1/alerts:
+    get:
+      summary: Get recent alerts
+      description: >
+        Returns up to 20 recent alert records. When a device_id query parameter is
+        provided, results are queried for that specific device. Otherwise the API
+        scans the Alerts table and returns the most recent records available to the
+        current implementation.
+      parameters:
+        - name: device_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Alert records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlertRecord"

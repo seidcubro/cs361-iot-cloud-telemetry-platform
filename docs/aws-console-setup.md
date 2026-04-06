@@ -1,63 +1,74 @@
-# AWS Console Setup (M7+)
+# AWS Resource Setup (Current Backend)
 
-This document describes the **AWS Console** configuration required for Milestone M7+:
-- SQS queue for asynchronous buffering
-- DynamoDB table for time-series storage
-- IAM least-privilege permissions
-- Optional: Secrets Manager for configuration
+This document describes the AWS resources used by the current backend.
 
-> For CS361: AWS resource creation is done in the console to demonstrate cloud proficiency.
+## Region
+- `us-east-1`
 
-## 1) DynamoDB: Telemetry table
-Create a DynamoDB table:
+## 1. SQS queue
+### Queue
+- Name: `cs361-telemetry-queue`
+- Type: Standard queue
 
-- **Table name:** `Telemetry`
-- **Partition key:** `device_id` (String)
-- **Sort key:** `timestamp` (String, ISO-8601)
+### Recommended settings
+- Long polling: 10 seconds
+- Visibility timeout: 30 seconds
+- Retention: default or course-appropriate value
 
-Recommended settings:
-- **Capacity mode:** On-demand (PAY_PER_REQUEST)
-- **Encryption:** default enabled
-- **PITR:** enable if budget allows (helps with rollback/ops readiness)
+### Why it exists
+The ingestion service returns quickly and decouples device traffic from database writes. The worker then drains the queue asynchronously.
 
-Why:
-- Partitioning by `device_id` isolates device data and scales horizontally.
-- Sort key `timestamp` supports: latest query (descending + limit 1) and range queries.
+## 2. DynamoDB tables
+### `Telemetry`
+- Partition key: `device_id` (String)
+- Sort key: `timestamp` (Number)
+- Billing mode: `PAY_PER_REQUEST`
 
-## 2) SQS: Standard queue + DLQ
-Create:
-- Standard queue: `cs361-telemetry-queue`
-- Dead-letter queue (DLQ): `cs361-telemetry-dlq`
+### `Alerts`
+- Partition key: `device_id` (String)
+- Sort key: `timestamp` (Number)
+- Billing mode: `PAY_PER_REQUEST`
 
-Recommended settings:
-- **Long polling:** 10 seconds
-- **Visibility timeout:** 30 seconds
-- **Retention:** default 4 days
-- **Redrive policy:** max receives 5 → DLQ
+### Why the sort key is numeric
+The current implementation uses Unix epoch seconds, which supports chronological ordering and latest-record queries.
 
-Why:
-- Long polling reduces API spam/cost.
-- Visibility timeout supports retry semantics.
-- DLQ prevents poison messages from retrying forever.
+## 3. ECR repositories
+Required repositories:
+- `cs361-ingestion`
+- `cs361-worker`
+- `cs361-api`
 
-## 3) IAM: least privilege
-Create a dedicated IAM user or role (development-only) with permissions scoped to:
-- The SQS queue ARN (send/receive/delete/get attributes)
-- The DynamoDB table ARN (put/query/get/describe)
+## 4. Kubernetes secrets currently used in EKS
+### `aws-creds`
+Expected keys:
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
 
-**Do not** grant `*` resources.
+### `telemetry-secrets`
+Expected keys:
+- `API_KEY`
 
-Local kind note:
-- Local Kubernetes cannot use IRSA (EKS feature). For M7 local proof, credentials are provided via Kubernetes Secrets.
-- For EKS, migrate to IRSA (no static credentials) as a planned improvement.
+## 5. Current environment variables by service
+### Ingestion
+- `AWS_REGION`
+- `SQS_QUEUE_URL`
+- `API_KEY`
 
-## 4) API Gateway + API keys (planned)
-For device ingestion security, API Gateway can enforce an API key (or JWT) before routing to ingestion.
-This is typically implemented after the async pipeline is proven end-to-end.
+### Worker
+- `AWS_REGION`
+- `SQS_QUEUE_URL`
+- `TABLE_NAME` or default `Telemetry`
+- `ALERTS_TABLE` or default `Alerts`
 
-## 5) What values you will need later
-Capture:
-- AWS Region (e.g., `us-east-1`)
-- SQS Queue URL
-- DynamoDB table name
-- Access key + secret (development-only)
+### API
+- `AWS_REGION`
+- `TABLE_NAME` or default `Telemetry`
+- `ALERTS_TABLE` or default `Alerts`
+
+## 6. Security note
+For the class deployment, static credentials were injected through Kubernetes Secrets.
+For a real production hardening pass, preferred next steps would be:
+- IAM roles for service accounts
+- tighter least-privilege IAM policies
+- secret rotation
+- API Gateway or another front-door auth layer for read endpoints if needed

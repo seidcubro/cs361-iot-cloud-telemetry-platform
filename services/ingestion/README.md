@@ -1,35 +1,47 @@
 # Ingestion Service
 
 ## Purpose
-Accepts telemetry payloads from devices/publishers.
+The ingestion service is the write entry point for telemetry publishers.
 
-Prototype (M4/M6):
-- Validates payload then stores latest record per device in a JSON file mounted at `DATA_PATH`.
+It:
+- accepts JSON telemetry payloads
+- validates required fields
+- auto-populates `timestamp` when missing
+- requires an `x-api-key` header
+- publishes accepted records to SQS
 
-Target (M7+):
-- Validates payload then publishes an event to SQS and returns 202 quickly.
-
-## Endpoint
-- `POST /v1/telemetry` → `202 Accepted` on success
+## Endpoints
 - `GET /health`
+- `POST /v1/telemetry`
 
-## Telemetry schema
-Required fields:
+## Required payload fields
+- `house_id` (string)
 - `device_id` (string)
-- `timestamp` (ISO-8601, UTC recommended)
-- `temperature_c` (number)
+- `temperature_f` (number)
 - `humidity_pct` (number)
 
-## Configuration
-Environment variables:
-- `DATA_PATH` — path to prototype JSON file
+## Optional payload field
+- `timestamp` (integer, Unix epoch seconds)
 
-## Local run (outside docker)
+## Authentication
+Requests to `POST /v1/telemetry` must include:
+```text
+x-api-key: <API_KEY>
+```
+
+## Environment variables
+- `AWS_REGION`
+- `SQS_QUEUE_URL`
+- `API_KEY`
+
+## Local run
 ```powershell
 pip install -r requirements.txt
-$env:DATA_PATH = "..\..\data\latest.json"
+$env:AWS_REGION = "us-east-1"
+$env:SQS_QUEUE_URL = "<queue-url>"
+$env:API_KEY = "<api-key>"
 python app.py
 ```
 
 ## Container
-`Dockerfile` runs Gunicorn binding to `0.0.0.0:8080`.
+The container runs Gunicorn bound to `0.0.0.0:8080`.

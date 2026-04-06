@@ -8,21 +8,34 @@ Never commit:
 - tokens
 - `.env` files with credentials
 
-## Recommended local secret handling
-- Local Docker: use `.env` (gitignored) or environment variables
-- Local kind: use Kubernetes Secrets
-- AWS/EKS: use IRSA + Secrets Manager
+## Current security posture
+The current backend adds API-key authentication to the ingestion endpoint.
+That is appropriate for the course milestone, but it is not the final ideal architecture.
+
+## Recommended secret handling
+- Local development: environment variables
+- Kubernetes / EKS: Kubernetes Secrets
+- Future production hardening: IAM roles for service accounts and a managed secret store
 
 ## IAM least privilege
-Grant only the exact permissions required for:
-- Ingestion: `sqs:SendMessage`
-- Worker: `sqs:ReceiveMessage/DeleteMessage`, `dynamodb:PutItem`
-- API: `dynamodb:Query`, optionally `sqs:GetQueueAttributes` for ingestion view
+Grant only the permissions each service needs.
 
-Scope permissions to the specific queue/table resources, not `*`.
+### Ingestion
+- `sqs:SendMessage`
+
+### Worker
+- `sqs:ReceiveMessage`
+- `sqs:DeleteMessage`
+- `dynamodb:PutItem`
+
+### API
+- `dynamodb:Query`
+- `dynamodb:Scan` for current alert retrieval behavior
+
+Scope permissions to the specific queue and tables instead of `*`.
 
 ## Reporting vulnerabilities
-This is an academic project. If you identify a security issue, open a GitHub issue with:
-- Impact
-- Reproduction steps
-- Suggested mitigation
+This is an academic project. If you find a security issue, open a GitHub issue describing:
+- impact
+- reproduction steps
+- suggested mitigation

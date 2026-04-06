@@ -1,123 +1,106 @@
 # Cloud-Based IoT Environmental Telemetry Platform (CS361)
 
 Repo: `cs361-iot-cloud-telemetry-platform`  
-Team: Seid Cubro (Project Lead — Cloud/Infra/Security) + Charles Shoppel (App/DevOps)  
-Last updated: 2026-02-12
+Team: Seid Cubro (Project Lead — Cloud / Infrastructure / Security) + Charles Shoppel (App / UI)  
+Current phase: EKS deployment with API-key-protected ingestion, SQS buffering, DynamoDB persistence, worker-based alert generation, and API endpoints for latest telemetry and alerts.
 
-## 0. What this is
-A cloud-native IoT telemetry platform that ingests temperature/humidity readings (ESP32 + DHT22), buffers ingestion asynchronously, persists to DynamoDB, and exposes read APIs.
+## What this project is
+This repository contains a cloud-native IoT telemetry platform for collecting environmental readings from an ESP32 + DHT sensor and serving them to downstream clients.
 
-**Target AWS data flow (final architecture):**
+### Current production-style data flow
+`Device / publisher -> Ingestion service -> SQS -> Worker -> DynamoDB -> API -> UI`
 
-`ESP32 → API Gateway → Ingestion (EKS) → SQS → Worker (EKS) → DynamoDB → API (EKS) → Clients`
+### Current deployed behavior
+- `ingestion` accepts telemetry over HTTP and requires an `x-api-key` header.
+- `worker` consumes queued telemetry from SQS and writes readings to DynamoDB.
+- `worker` also creates alert records when thresholds are exceeded.
+- `api` returns latest telemetry and recent alerts for the UI.
 
-This architecture and the design decisions are documented in:
-- `project-proposal/CS 361 Project Proposal.pdf`
-- `project-architecture/CS 361 Project Architecture Package.pdf`
-- `project-team-roles/CS 361 Project Team Roles.pdf`
+## Current architecture snapshot
+### Core AWS services
+- Amazon EKS for container orchestration
+- Amazon SQS for asynchronous buffering
+- Amazon DynamoDB for telemetry and alert storage
+- Amazon ECR for container images
+- Kubernetes Secrets for runtime configuration in the current course-project deployment
 
-## 1. Repo map
+### DynamoDB tables
+#### `Telemetry`
+- Partition key: `device_id` (String)
+- Sort key: `timestamp` (Number)
+
+#### `Alerts`
+- Partition key: `device_id` (String)
+- Sort key: `timestamp` (Number)
+
+## Current API surface
+### Ingestion service
+- `GET /health`
+- `POST /v1/telemetry`
+
+### API service
+- `GET /health`
+- `GET /v1/telemetry/latest?device_id=<device_id>`
+- `GET /v1/alerts`
+- `GET /v1/alerts?device_id=<device_id>`
+
+## Telemetry payload format
+```json
+{
+  "house_id": "house-1",
+  "device_id": "garage",
+  "temperature_f": 70.0,
+  "humidity_pct": 40.0,
+  "timestamp": 1741800000
+}
+```
+
+Notes:
+- `timestamp` is Unix epoch time in seconds.
+- If `timestamp` is omitted, ingestion fills it in automatically.
+- `temperature_f` and `humidity_pct` are stored in DynamoDB as numeric values.
+
+## Alert rules
+The worker currently creates alert records when:
+- `temperature_f > 90`
+- `humidity_pct > 80`
+
+Alert records are stored in the `Alerts` table and exposed through the API for UI consumption.
+
+## Repository map
 | Path | Purpose |
 |---|---|
-| `services/` | Microservices (containerized) |
-| `docker-compose.yml` | Local prototype orchestration (Milestone M4) |
-| `k8s/` | Kubernetes manifests (Milestone M6) |
-| `kind-config.yaml` | Local kind cluster config (Windows) |
-| `metrics-server-patch.json` | Patch used to fix metrics-server args for HPA |
-| `docs/` | Evidence + milestone documentation (screenshots, PDFs, run notes) |
-| `data/latest.json` | **Prototype-only** storage used for M4/M6 local demos (replaced by DynamoDB in M7+) |
-| `telemetry.json` | Sample telemetry payload used for testing |
+| `services/` | Application services: ingestion, worker, and api |
+| `k8s-eks/` | Current EKS deployment manifests |
+| `k8s/` | Historical local kind manifests kept for milestone evidence |
+| `docs/` | Project documentation, operations notes, and milestone evidence |
+| `project-proposal/` | Proposal deliverables |
+| `project-architecture/` | Architecture package and diagrams |
+| `project-cdr/` | Critical design review deliverables |
+| `project-team-roles/` | Team role assignment document |
+| `ESP32_DHT_Sensor_Project_Public_Copy/` | Microcontroller-side publisher sketch |
+| `docker-compose.yml` | Historical M4 prototype stack, retained for coursework traceability |
 
-## 2. Current milestone status
-- **M4 (PDR):** Local prototype via Docker Compose (ingest + latest read) + evidence in `docs/pdr-evidence/`
-- **M5 (CDR):** CDR/traceability/security/observability baseline artifacts in `project-cdr/` (if present)
-- **M6:** kind deployment + Services + Ingress + HPA + metrics proof in `docs/k8s-deployment-evidence/`
-- **M7 (next):** Replace prototype storage with **SQS + Worker + DynamoDB**, add ingestion view endpoint, and use either a publisher script or the physical ESP32 device.
+## Quick navigation
+- Start here for project docs: `docs/README.md`
+- API contract: `docs/api/openapi.yaml`
+- Operations runbook: `docs/runbook.md`
+- Troubleshooting notes: `docs/troubleshooting.md`
+- AWS resource notes: `docs/aws-console-setup.md`
+- Milestone evidence map: `docs/milestones.md`
 
-## 3. Local quickstart (Docker Compose)
-**Requirements**
-- Docker Desktop
-- PowerShell
-- Ports available: `8081` (ingestion), `8082` (api)
+## Historical milestone note
+This repository contains both the current EKS-based implementation and older milestone artifacts.
 
-Run:
-```powershell
-docker compose up --build
-```
+### Historical artifacts retained intentionally
+- `docker-compose.yml` and `data/latest.json` support the earlier local-file prototype narrative.
+- `k8s/` and `kind-config.yaml` support Milestone M6 local Kubernetes evidence.
+- The current implementation path for the backend is the `k8s-eks/` deployment plus the AWS-backed services in `services/`.
 
-Health checks:
-```powershell
-curl.exe -i http://localhost:8081/health
-curl.exe -i http://localhost:8082/health
-```
+## Security note
+This is a course project, but the repository should still be treated like a real software system.
+- Do not commit credentials, API keys, or tokens.
+- Prefer secrets in Kubernetes or environment variables.
+- For a future hardening pass, migrate from static AWS credentials to IAM roles for service accounts.
 
-POST telemetry:
-```powershell
-curl.exe -i -X POST "http://localhost:8081/v1/telemetry" `
-  -H "Content-Type: application/json" `
-  --data-binary "@telemetry.json"
-```
-
-GET latest:
-```powershell
-curl.exe -i "http://localhost:8082/v1/devices/esp32-001/telemetry/latest"
-```
-
-> Note: PowerShell aliases `curl` to `Invoke-WebRequest`. Use `curl.exe` to avoid quoting/behavior differences.
-
-## 4. Kubernetes quickstart (kind)
-This repo supports M6 evidence using a local Kubernetes cluster.
-
-Create cluster:
-```powershell
-kind create cluster --name cs361 --config .\kind-config.yaml
-```
-
-Install ingress + metrics-server as needed (see docs):
-- `docs/kubernetes.md`
-- `docs/troubleshooting.md`
-
-Build and load images:
-```powershell
-docker build -t cs361-ingestion:local services\ingestion
-docker build -t cs361-api:local services\api
-
-kind load docker-image cs361-ingestion:local --name cs361
-kind load docker-image cs361-api:local --name cs361
-```
-
-Apply manifests:
-```powershell
-kubectl apply -f .\k8s
-kubectl get pods
-kubectl get svc
-kubectl get ingress
-kubectl get hpa
-kubectl top nodes
-```
-
-## 5. Documentation index
-Start here: **`docs/README.md`**.
-
-## 6. Evidence / grading artifacts
-- M4 evidence: `docs/pdr-evidence/`
-- M6 evidence: `docs/k8s-deployment-evidence/`
-
-## 7. Coding + documentation standards
-This repo follows:
-- Docstrings + comments for non-obvious logic
-- Clear configuration via environment variables
-- Minimal dependencies
-- "Terminal-only" workflow: all editing and operations are reproducible via PowerShell commands
-
-See:
-- `CONTRIBUTING.md`
-- `docs/coding-standards.md`
-- `docs/api/openapi.yaml`
-
-## 8. Security note
-Do **not** commit AWS credentials or secrets. Local-only secrets should be stored using:
-- `.env` (gitignored) for local runs, or
-- Kubernetes Secrets for local clusters
-
-See: `SECURITY.md` and `docs/aws-console-setup.md`.
+See `SECURITY.md` for the repo policy.

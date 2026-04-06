@@ -1,16 +1,23 @@
 # Services
 
-This folder contains the platform microservices.
+This folder contains the three backend services that make up the current platform.
 
 ## Current services
-- `ingestion/` — accepts telemetry payloads via REST
-- `api/` — reads latest telemetry via REST
+### `ingestion/`
+Accepts telemetry over HTTP, validates it, enforces API-key authentication, and pushes accepted events to SQS.
 
-## Planned (M7+)
-- `worker/` — consumes SQS messages and writes to DynamoDB
+### `worker/`
+Consumes telemetry events from SQS, writes them to DynamoDB, and creates alerts when threshold rules are exceeded.
 
-Each service directory contains:
-- `app.py` (Flask application)
-- `requirements.txt`
-- `Dockerfile`
-- `README.md` describing service usage and configuration
+### `api/`
+Provides read endpoints for latest telemetry and recent alerts so the UI can display current state and notifications.
+
+## Service relationships
+`ingestion -> SQS -> worker -> DynamoDB -> api`
+
+## Notes on historical evolution
+The repository originally began with a two-service local prototype:
+- ingestion
+- api
+
+That older prototype used a shared JSON file. The current implementation is AWS-backed and includes the worker.

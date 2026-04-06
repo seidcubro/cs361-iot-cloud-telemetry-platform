@@ -1,34 +1,72 @@
 # Troubleshooting
 
-## PowerShell curl alias
-PowerShell aliases `curl` to `Invoke-WebRequest` (different flags/quoting).
-Use `curl.exe`.
+## PowerShell `curl` alias problem
+PowerShell aliases `curl` to `Invoke-WebRequest`, which behaves differently from standard curl.
 
-## Metrics API not available (HPA)
-Symptoms:
-- `kubectl top nodes` fails
-- HPA shows `TARGETS <unknown>`
+Use one of these instead:
+- `curl.exe`
+- `Invoke-RestMethod`
+- `Invoke-WebRequest`
 
-Fix:
-- Ensure metrics-server is installed and healthy.
-- Avoid `kubectl edit` when possible (tabs/indentation can break YAML).
-- Use `kubectl patch --patch-file metrics-server-patch.json` as documented by this repo.
+## Multi-line PowerShell command issue
+Linux-style `\` line continuations do not work in PowerShell.
+Use either:
+- a single line command, or
+- PowerShell backticks `` ` ``
 
-Verify:
+## `ImagePullBackOff` on EKS
+Common causes:
+- not logged into ECR
+- pushed the wrong image tag
+- deployment points to a tag that does not exist
+
+Typical fix:
 ```powershell
-kubectl top nodes
-kubectl get hpa
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <account>.dkr.ecr.us-east-1.amazonaws.com
+docker push <full-image-tag>
+kubectl rollout restart deployment/<name> -n telemetry
 ```
 
-## Ingress unreachable in kind
-Some kind ingress setups are not bound directly to host `localhost:80`.
-If endpoint tests fail but pods/services are healthy:
-- use `kubectl port-forward` to reach services for demo
-- capture cluster proof for milestone grading
+## Route exists in source but returns 404
+Possible causes:
+- request is hitting the wrong service or load balancer
+- the deployment is still serving an older image tag
+- the service is not exposed externally
 
-## Docker build issues
-- Ensure Dockerfiles are named `Dockerfile` (not `Dockerfile.txt`)
-- Rebuild with `--no-cache` if dependency issues occur:
+What worked in this project:
+- verify routes inside the pod with `print(app.url_map)`
+- verify the route over HTTP from inside the pod
+- move to a brand-new immutable image tag instead of reusing an older tag
+- confirm the service type and external load balancer
+
+## Service confusion between ingestion and API
+This project uses two different public load balancers in the current EKS layout:
+- ingestion load balancer for `POST /v1/telemetry`
+- API load balancer for read endpoints like `/v1/alerts`
+
+If `/v1/telemetry` works but `/v1/alerts` returns 404, double-check which load balancer URL you are calling.
+
+## `kubectl get pods` returns nothing
+By default, `kubectl` uses the `default` namespace.
+If the project resources are in `telemetry`, use:
 ```powershell
-docker build --no-cache -t cs361-api:local services\api
+kubectl get pods -n telemetry
 ```
+
+## `kubectl exec` pod not found
+Pods are replaced during rollouts, so names change frequently.
+Always refresh the pod name first:
+```powershell
+kubectl get pods -n telemetry
+```
+
+## `netstat` not found inside slim images
+Minimal Python images often do not include debugging tools like `netstat`.
+Use Python-based HTTP checks or `print(app.url_map)` from inside the pod instead.
+
+## Legacy docs versus current implementation
+This repository intentionally keeps older milestone artifacts.
+If you see conflicting information:
+1. trust the source code in `services/`
+2. trust the current manifests in `k8s-eks/`
+3. treat `docker-compose.yml`, `k8s/`, and earlier evidence folders as historical context

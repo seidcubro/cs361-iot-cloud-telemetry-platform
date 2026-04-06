@@ -15,16 +15,16 @@ spec:
     spec:
       containers:
         - name: api
-          image: 094728020196.dkr.ecr.us-east-1.amazonaws.com/cs361-api:m7-eks
+          image: 094728020196.dkr.ecr.us-east-1.amazonaws.com/cs361-api:m8-alerts-v2
           ports:
             - containerPort: 8080
           env:
             - name: AWS_REGION
               value: us-east-1
-            - name: SQS_QUEUE_URL
-              value: https://sqs.us-east-1.amazonaws.com/094728020196/cs361-telemetry-queue
-            - name: DDB_TABLE
+            - name: TABLE_NAME
               value: Telemetry
+            - name: ALERTS_TABLE
+              value: Alerts
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -35,8 +35,6 @@ spec:
                 secretKeyRef:
                   name: aws-creds
                   key: AWS_SECRET_ACCESS_KEY
-            - name: ALERTS_TABLE
-              value: Alerts
 ---
 apiVersion: v1
 kind: Service
@@ -50,4 +48,3 @@ spec:
   ports:
     - port: 80
       targetPort: 8080
-

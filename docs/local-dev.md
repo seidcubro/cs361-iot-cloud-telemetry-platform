@@ -1,15 +1,22 @@
-# Local Development (Docker Compose)
+# Local Development (Historical Docker Compose Prototype)
 
-## Prerequisites
-- Windows + PowerShell
-- Docker Desktop (WSL2 backend recommended)
-- `curl.exe` available (Windows 10/11 includes it)
+This document describes the earlier local prototype kept in the repository for milestone traceability.
 
-## Services
-- **ingestion**: receives telemetry and accepts payloads (prototype writes to `data/latest.json`)
-- **api**: serves read endpoints (prototype reads from `data/latest.json`)
+## Important status note
+The repository's current primary backend path is AWS-backed:
+- ingestion -> SQS -> worker -> DynamoDB -> API
 
-## Run
+The `docker-compose.yml` file is retained to document the M4 prototype, but it is not the mainline environment for the current backend. The current service code has moved beyond the original local-file-only flow.
+
+## What the prototype represented
+The original compose stack demonstrated:
+- a REST ingestion service
+- a REST read service
+- shared local storage through `data/latest.json`
+
+That prototype was useful for early milestone evidence before the AWS queue and DynamoDB path replaced it.
+
+## Historical commands
 From repo root:
 ```powershell
 docker compose up --build
@@ -20,14 +27,11 @@ Stop:
 docker compose down
 ```
 
-## Test: health
+## Historical test pattern
 ```powershell
 curl.exe -i http://localhost:8081/health
 curl.exe -i http://localhost:8082/health
 ```
-
-## Test: publish telemetry
-The repo includes a sample payload in `telemetry.json`.
 
 ```powershell
 curl.exe -i -X POST "http://localhost:8081/v1/telemetry" `
@@ -35,19 +39,13 @@ curl.exe -i -X POST "http://localhost:8081/v1/telemetry" `
   --data-binary "@telemetry.json"
 ```
 
-Expected:
-- HTTP **202 Accepted**
-- body: `{"message":"Accepted"}`
+## Why this doc still exists
+This repo intentionally preserves milestone history. Reviewers can still trace the platform's evolution from:
+1. local prototype
+2. local Kubernetes proof
+3. AWS-backed async pipeline
 
-## Test: read latest
-```powershell
-curl.exe -i "http://localhost:8082/v1/devices/esp32-001/telemetry/latest"
-```
-
-Expected:
-- HTTP **200 OK**
-- JSON payload for that device
-
-## PowerShell gotcha: curl alias
-PowerShell aliases `curl` to `Invoke-WebRequest`, which changes quoting/flags behavior.
-Use `curl.exe` for consistent cross-platform curl behavior.
+For the current deployment path, use:
+- `docs/aws-console-setup.md`
+- `docs/runbook.md`
+- `k8s-eks/`
