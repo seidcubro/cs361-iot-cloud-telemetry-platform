@@ -33,4 +33,6 @@ spec:
                 secretKeyRef:
                   name: aws-creds
                   key: AWS_SECRET_ACCESS_KEY
+            - name: ALERTS_TABLE
+              value: Alerts
 

@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: ingestion
-          image: 094728020196.dkr.ecr.us-east-1.amazonaws.com/cs361-ingestion:m7-eks
+          image: 094728020196.dkr.ecr.us-east-1.amazonaws.com/cs361-ingestion:m8-security
           ports:
             - containerPort: 8080
           env:
@@ -23,6 +23,11 @@ spec:
               value: us-east-1
             - name: SQS_QUEUE_URL
               value: https://sqs.us-east-1.amazonaws.com/094728020196/cs361-telemetry-queue
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: telemetry-secrets
+                  key: API_KEY
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:

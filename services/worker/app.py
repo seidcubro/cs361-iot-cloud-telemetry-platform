@@ -1,88 +1,83 @@
 ﻿import os
 import json
-import time
-import traceback
 from decimal import Decimal
 
 import boto3
 
-def env(name: str) -> str:
-    v = os.getenv(name)
-    if not v:
-        raise RuntimeError(f"Missing required env var: {name}")
-    return v
-
-AWS_REGION = env("AWS_REGION")
-SQS_QUEUE_URL = env("SQS_QUEUE_URL")
-DDB_TABLE = env("DDB_TABLE")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL")
+TABLE_NAME = os.getenv("TABLE_NAME", "Telemetry")
+ALERTS_TABLE = os.getenv("ALERTS_TABLE", "Alerts")
 
 sqs = boto3.client("sqs", region_name=AWS_REGION)
-ddb = boto3.resource("dynamodb", region_name=AWS_REGION)
-table = ddb.Table(DDB_TABLE)
+dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 
-def safe_json(body: str):
-    try:
-        return json.loads(body)
-    except Exception:
-        return None
+table = dynamodb.Table(TABLE_NAME)
+alerts_table = dynamodb.Table(ALERTS_TABLE)
 
-def to_decimal(x):
-    return Decimal(str(x))
+TEMP_THRESHOLD = 90
+HUMIDITY_THRESHOLD = 80
 
-def normalize(payload: dict) -> dict:
-    for k in ["house_id", "device_id", "temperature_f", "humidity_pct"]:
-        if k not in payload:
-            raise ValueError(f"Missing field: {k}")
+def to_decimal(obj):
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    return obj
 
-    ts = payload.get("timestamp")
-    if ts is None or ts == "":
-        ts = int(time.time())
+print("Worker started...")
 
-    ts = int(ts)
+while True:
+    resp = sqs.receive_message(
+        QueueUrl=SQS_QUEUE_URL,
+        MaxNumberOfMessages=10,
+        WaitTimeSeconds=10,
+    )
 
-    return {
-        "house_id": str(payload["house_id"]),
-        "device_id": str(payload["device_id"]),
-        "timestamp": ts,
-        "temperature_f": to_decimal(payload["temperature_f"]),
-        "humidity_pct": to_decimal(payload["humidity_pct"]),
-    }
+    messages = resp.get("Messages", [])
 
-def main():
-    print(f"[worker] start region={AWS_REGION} table={DDB_TABLE}", flush=True)
+    for msg in messages:
+        body = json.loads(msg["Body"])
 
-    while True:
-        try:
-            resp = sqs.receive_message(
-                QueueUrl=SQS_QUEUE_URL,
-                MaxNumberOfMessages=10,
-                WaitTimeSeconds=10,
-                VisibilityTimeout=30
-            )
+        item = {
+            "house_id": body["house_id"],
+            "device_id": body["device_id"],
+            "timestamp": int(body["timestamp"]),
+            "temperature_f": to_decimal(body["temperature_f"]),
+            "humidity_pct": to_decimal(body["humidity_pct"]),
+        }
 
-            msgs = resp.get("Messages", [])
-            if not msgs:
-                continue
+        # Store telemetry
+        table.put_item(Item=item)
 
-            for m in msgs:
-                receipt = m["ReceiptHandle"]
-                body = m.get("Body") or ""
-                payload = safe_json(body)
+        # 🔥 ALERT LOGIC
+        alerts = []
 
-                if payload is None:
-                    print(f"[worker] skipping invalid JSON body={body[:120]!r}", flush=True)
-                    sqs.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=receipt)
-                    continue
+        if body["temperature_f"] > TEMP_THRESHOLD:
+            alerts.append({
+                "type": "HIGH_TEMP",
+                "value": body["temperature_f"]
+            })
 
-                item = normalize(payload)
-                table.put_item(Item=item)
-                sqs.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=receipt)
-                print(f"[worker] processed device_id={item['device_id']} ts={item['timestamp']}", flush=True)
+        if body["humidity_pct"] > HUMIDITY_THRESHOLD:
+            alerts.append({
+                "type": "HIGH_HUMIDITY",
+                "value": body["humidity_pct"]
+            })
 
-        except Exception as e:
-            print("[worker] ERROR:", str(e), flush=True)
-            traceback.print_exc()
-            time.sleep(2)
+        for alert in alerts:
+            alert_item = {
+                "device_id": body["device_id"],
+                "timestamp": int(body["timestamp"]),
+                "house_id": body["house_id"],
+                "type": alert["type"],
+                "value": to_decimal(alert["value"])
+            }
 
-if __name__ == "__main__":
-    main()
+            print(f"[ALERT] {alert_item}")
+
+            alerts_table.put_item(Item=alert_item)
+
+        # Delete message
+        sqs.delete_message(
+            QueueUrl=SQS_QUEUE_URL,
+            ReceiptHandle=msg["ReceiptHandle"],
+        )

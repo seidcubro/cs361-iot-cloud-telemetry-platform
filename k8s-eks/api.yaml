@@ -35,6 +35,8 @@ spec:
                 secretKeyRef:
                   name: aws-creds
                   key: AWS_SECRET_ACCESS_KEY
+            - name: ALERTS_TABLE
+              value: Alerts
 ---
 apiVersion: v1
 kind: Service
@@ -42,7 +44,7 @@ metadata:
   name: api-svc
   namespace: telemetry
 spec:
-  type: ClusterIP
+  type: LoadBalancer
   selector:
     app: api
   ports:
