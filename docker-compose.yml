@@ -1,3 +1,5 @@
+# Historical M4 local prototype only.
+# Current backend source of truth is services/ + k8s-eks/ with AWS services.
 services:
   ingestion:
     build: ./services/ingestion

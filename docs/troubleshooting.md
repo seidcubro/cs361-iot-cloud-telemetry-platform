@@ -70,3 +70,19 @@ If you see conflicting information:
 1. trust the source code in `services/`
 2. trust the current manifests in `k8s-eks/`
 3. treat `docker-compose.yml`, `k8s/`, and earlier evidence folders as historical context
+
+## Browser CORS errors from the UI
+If the frontend shows `Access-Control-Allow-Origin` missing:
+1. confirm the UI is calling the API load balancer, not the ingestion load balancer
+2. make sure `flask-cors` is installed in `services/api/requirements.txt`
+3. make sure `CORS(app, ...)` is enabled in `services/api/app.py`
+4. rebuild and deploy a fresh API image tag
+
+## Wrong load balancer URL
+The ingestion load balancer only supports:
+- GET /health
+- POST /v1/telemetry
+
+UI read requests must go to the API load balancer:
+- GET /v1/telemetry/latest
+- GET /v1/alerts

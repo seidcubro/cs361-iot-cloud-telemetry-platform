@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: 094728020196.dkr.ecr.us-east-1.amazonaws.com/cs361-api:m8-alerts-v2
+          image: 094728020196.dkr.ecr.us-east-1.amazonaws.com/cs361-api:m9-cors
           ports:
             - containerPort: 8080
           env:
