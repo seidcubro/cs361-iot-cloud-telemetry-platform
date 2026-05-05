@@ -5,6 +5,7 @@ import boto3
 from boto3.dynamodb.conditions import Key
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from time import time
 
 app = Flask(__name__)
 CORS(
@@ -80,6 +81,83 @@ def get_alerts():
         return jsonify(serialize(items)), 200
     except Exception as e:
         return jsonify({"error": "Failed to query alerts", "details": str(e)}), 500
+    
+@app.route("/v1/telemetry/history", methods=["GET"])
+def history():
+    device_id = request.args.get("device_id")
+    hours = request.args.get("hours", type=int)
+    start = request.args.get("start", type=int)
+    end = request.args.get("end", type=int)
+    limit = request.args.get("limit", default=5000, type=int)
+    bucket = request.args.get("bucket", type=int)
+
+    if not device_id:
+        return jsonify({"error": "device_id required"}), 400
+
+    try:
+        now = int(time())
+
+        # Determine time window
+        if hours:
+            end_ts = now
+            start_ts = now - (hours * 3600)
+        elif start and end:
+            start_ts = start
+            end_ts = end
+        else:
+            return jsonify({"error": "Provide hours OR start/end"}), 400
+
+        resp = telemetry_table.query(
+            KeyConditionExpression=(
+                Key("device_id").eq(device_id) &
+                Key("timestamp").between(start_ts, end_ts)
+            ),
+            ScanIndexForward=True,
+            Limit=limit,
+        )
+
+        items = resp.get("Items", [])
+        items = serialize(items)
+
+        if not bucket:
+            return jsonify(items), 200
+
+        if bucket <= 0:
+            return jsonify({"error": "bucket must be > 0"}), 400
+
+        grouped = {}
+
+        for item in items:
+            ts = int(item["timestamp"])
+            bucket_key = ts // bucket
+            bucket_start = bucket_key * bucket
+
+            if bucket_key not in grouped:
+                grouped[bucket_key] = {
+                    "timestamp": bucket_start,
+                    "temps": [],
+                    "humidity": []
+                }
+
+            grouped[bucket_key]["temps"].append(float(item["temperature_f"]))
+            grouped[bucket_key]["humidity"].append(float(item["humidity_pct"]))
+
+        result = []
+        for g in grouped.values():
+            result.append({
+                "timestamp": g["timestamp"],
+                "temperature_f": round(sum(g["temps"]) / len(g["temps"]), 2),
+                "humidity_pct": round(sum(g["humidity"]) / len(g["humidity"]), 2)
+            })
+
+        result.sort(key=lambda x: x["timestamp"])
+        return jsonify(result), 200
+
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to query history",
+            "details": str(e)
+        }), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
